@@ -1,0 +1,18 @@
+# Development Dockerfile
+# Used by docker-compose.yml for local development with hot-reload.
+# NOT for production — see Dockerfile (to be created in Phase 5).
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies first (cached layer)
+COPY package*.json ./
+RUN npm install
+
+# Copy source (will be overridden by the volume mount in docker-compose)
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

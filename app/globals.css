@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  /* ─── Fonts ─────────────────────────────────────────────── */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* ─── Background layers ──────────────────────────────────── */
+  --color-canvas: #0a0a0f;
+  --color-surface: #16161a;
+  --color-surface-raised: #1f1f26;
+  --color-surface-overlay: #25252e;
+
+  /* ─── Brand / Primary ────────────────────────────────────── */
+  --color-primary: #6366f1;
+  --color-primary-dim: #4f51d0;
+  --color-primary-muted: #6366f11f;
+
+  /* ─── Semantic colours ───────────────────────────────────── */
+  --color-secondary: #22d3ee;      /* Cyan  — AI / RAG features */
+  --color-warning: #f59e0b;        /* Amber — overrides / expiry */
+  --color-success: #10b981;        /* Emerald — published / healthy */
+  --color-danger: #ef4444;         /* Red — errors / destructive */
+
+  /* ─── Text hierarchy ─────────────────────────────────────── */
+  --color-ink: #e7e4f0;
+  --color-ink-muted: #acaab5;
+  --color-ink-subtle: #76747f;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #484750; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #76747f; }

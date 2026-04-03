@@ -1,0 +1,214 @@
+# Pinetworks Knowledge Platform — Local Development Infrastructure
+#
+# Services:
+#   landlord-db      → The central registry (tenants, master docs, auth configs)
+#   tenant-alpha-db  → Simulates Tenant A's isolated private database
+#   tenant-beta-db   → Simulates Tenant B's isolated private database
+#   redis            → Tenant metadata cache (TTL-based) + BullMQ job queue
+#
+# Usage:
+#   docker compose up -d          → Start all services
+#   docker compose down           → Stop all services
+#   docker compose down -v        → Stop and wipe all data volumes
+#   docker compose logs -f [svc]  → Tail logs for a specific service
+#
+# Access:
+#   Landlord DB      → localhost:5300  (db: pinetworks_landlord)
+#   Tenant Alpha DB  → localhost:5301  (db: pinetworks_alpha)
+#   Tenant Beta DB   → localhost:5302  (db: pinetworks_beta)
+#   Redis            → localhost:6379
+#
+# Multi-tenant local dev — add to /etc/hosts:
+#   127.0.0.1  alpha.localhost
+#   127.0.0.1  beta.localhost
+# Then visit http://alpha.localhost:3000 and http://beta.localhost:3000
+
+services:
+  # ─────────────────────────────────────────────
+  # LANDLORD DATABASE
+  # The central brain — stores tenant registry,
+  # master docs, auth configs, migration state.
+  # Uses pgvector image so vector operations work
+  # if we ever query master doc embeddings here.
+  # ─────────────────────────────────────────────
+  landlord-db:
+    image: pgvector/pgvector:pg17
+    container_name: pinetworks-landlord-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pinetworks_landlord
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5300:5432"
+    volumes:
+      - landlord_data:/var/lib/postgresql/data
+      - ./docker/init/landlord.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pinetworks_landlord"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # TENANT ALPHA DB
+  # Simulates the first tenant's isolated private
+  # database. In production each tenant gets their
+  # own managed Postgres instance.
+  # ─────────────────────────────────────────────
+  tenant-alpha-db:
+    image: pgvector/pgvector:pg17
+    container_name: pinetworks-alpha-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pinetworks_alpha
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5301:5432"
+    volumes:
+      - alpha_data:/var/lib/postgresql/data
+      - ./docker/init/tenant.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pinetworks_alpha"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # TENANT BETA DB
+  # Simulates the second tenant's isolated private
+  # database. Proves physical isolation between
+  # clients during local development.
+  # ─────────────────────────────────────────────
+  tenant-beta-db:
+    image: pgvector/pgvector:pg17
+    container_name: pinetworks-beta-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pinetworks_beta
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5302:5432"
+    volumes:
+      - beta_data:/var/lib/postgresql/data
+      - ./docker/init/tenant.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pinetworks_beta"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # REDIS
+  # Dual purpose:
+  #   1. Tenant metadata cache (TTL=5min)
+  #      Avoids hitting Landlord DB on every request.
+  #   2. BullMQ job queue backend
+  #      Powers embedding jobs, stale detection,
+  #      and fan-out migration workers.
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: pinetworks-redis
+    restart: unless-stopped
+    ports:
+      - "6179:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # NEXT.JS APPLICATION
+  # The main app server. Runs in development mode
+  # with hot-reload. Source code is mounted as a
+  # volume so edits on your host are reflected
+  # instantly inside the container.
+  #
+  # Access: http://localhost:3000
+  #
+  # Multi-tenant local dev — add entries to /etc/hosts:
+  #   127.0.0.1  alpha.localhost
+  #   127.0.0.1  beta.localhost
+  # Then visit http://alpha.localhost:3000
+  # ─────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: pinetworks-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source for hot-reload
+      - .:/app
+      # Named volumes shadow the host's node_modules and .next.
+      # Using named (not anonymous) volumes means they persist across
+      # container restarts — no full rebuild needed when you add packages.
+      # The startup command below runs `npm install` on every start to
+      # pick up new packages from package.json automatically.
+      - app_node_modules:/app/node_modules
+      - app_next:/app/.next
+    # Override the Dockerfile CMD: install first (no-op if nothing changed),
+    # then start the dev server.  This is what keeps host + container in sync
+    # without a full `docker compose build`.
+    command: sh -c "npm install && npm run dev"
+    environment:
+      # Landlord DB — uses service name as host (Docker internal DNS)
+      LANDLORD_DATABASE_URL: postgresql://postgres:postgres@landlord-db:5432/pinetworks_landlord
+      # Tenant DBs — raw connection strings for local dev only
+      # In production these are vault references, never raw strings
+      TENANT_ALPHA_DATABASE_URL: postgresql://postgres:postgres@tenant-alpha-db:5432/pinetworks_alpha
+      TENANT_BETA_DATABASE_URL: postgresql://postgres:postgres@tenant-beta-db:5432/pinetworks_beta
+      # Redis — uses service name
+      REDIS_URL: redis://redis:6379
+      # Next.js
+      NODE_ENV: development
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-secret-replace-in-production
+    depends_on:
+      landlord-db:
+        condition: service_healthy
+      tenant-alpha-db:
+        condition: service_healthy
+      tenant-beta-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+# ─────────────────────────────────────────────────
+# Future services to add here as phases progress:
+#
+#   hocuspocus:   Real-time collaborative editing
+#                 (Phase 3 — Tiptap collaboration)
+#
+#   worker:       BullMQ worker process
+#                 (Phase 4 — AI embedding jobs)
+#
+#   pgbouncer-*:  Connection pooler per tenant
+#                 (Before production go-live)
+# ─────────────────────────────────────────────────
+
+volumes:
+  landlord_data:
+    name: pinetworks_landlord_data
+  alpha_data:
+    name: pinetworks_alpha_data
+  beta_data:
+    name: pinetworks_beta_data
+  redis_data:
+    name: pinetworks_redis_data
+  # App volumes — named so they persist across container restarts.
+  # After `npm install <pkg>` on the host, just `docker compose restart app`
+  # (no rebuild) — the startup `npm install` will sync the new package.
+  app_node_modules:
+    name: pinetworks_app_node_modules
+  app_next:
+    name: pinetworks_app_next
