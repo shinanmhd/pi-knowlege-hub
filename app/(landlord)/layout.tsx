@@ -6,7 +6,7 @@ export default async function LandlordLayout({ children }: { children: React.Rea
   const session = await auth()
   
   if (!session?.user) {
-    redirect('/login')
+    redirect('/admin-login')
   }
 
   return <LandlordShell user={session.user}>{children}</LandlordShell>
