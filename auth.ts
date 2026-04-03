@@ -53,7 +53,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       return false; // Deny logins that aren't azure-ad for now
     },
-    async jwt({ token, user, profile, account }) {
+    async jwt({ token, profile, account }) {
       // First time login - attach DB id and role to token
       if (account && profile) {
         const azureProfile = profile as unknown as MicrosoftEntraIDProfile;
