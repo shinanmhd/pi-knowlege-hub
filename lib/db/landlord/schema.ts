@@ -147,6 +147,23 @@ export const tenantMigrationState = pgTable('tenant_migration_state', {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ADMIN USERS
+// Internal Pinetworks staff that have access to the Landlord dashboard.
+// Synced from Microsoft Entra ID on first login.
+// ─────────────────────────────────────────────────────────────────────────────
+export const adminUsers = pgTable('admin_users', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: text('email').notNull().unique(),
+  name: text('name').notNull(),
+  azureAdId: text('azure_ad_id').unique(), // nullable for future non-Microsoft users
+  role: text('role', { enum: ['superadmin', 'support', 'viewer'] })
+    .notNull()
+    .default('viewer'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // RELATIONS
 // ─────────────────────────────────────────────────────────────────────────────
 export const tenantsRelations = relations(tenants, ({ one, many }) => ({
@@ -188,3 +205,6 @@ export type MasterDoc = typeof masterDocs.$inferSelect
 export type NewMasterDoc = typeof masterDocs.$inferInsert
 export type DocAssignment = typeof docAssignments.$inferSelect
 export type TenantMigrationState = typeof tenantMigrationState.$inferSelect
+export type AdminUser = typeof adminUsers.$inferSelect
+export type NewAdminUser = typeof adminUsers.$inferInsert
+
